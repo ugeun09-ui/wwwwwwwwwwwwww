@@ -1,0 +1,171 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <title>화학 서바이벌: 무한 지옥</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        canvas { background: #020617; display: block; margin: 0 auto; border: 4px solid #f43f5e; cursor: none; }
+        #modal, #ending, #winning, #startScreen { display: none; }
+        .shake { animation: shake 0.2s infinite; }
+        @keyframes shake { 0% { transform: translate(0.5px, 0.5px); } 100% { transform: translate(-0.5px, -0.5px); } }
+    </style>
+</head>
+<body class="bg-slate-950 text-white flex flex-col items-center justify-center min-h-screen">
+
+    <div id="startScreen" class="fixed inset-0 bg-black flex flex-col items-center justify-center z-[100] cursor-pointer">
+        <h1 class="text-5xl font-black text-rose-500 mb-8">화학 서바이벌: 60초의 지옥</h1>
+        <p class="text-white text-xl animate-pulse">클릭하여 초고속 생존 시작!</p>
+    </div>
+
+    <div class="mb-4 text-center">
+        <h1 class="text-3xl font-black text-rose-500">화학 서바이벌</h1>
+        <div class="w-64 h-3 bg-slate-800 rounded-full mt-2 overflow-hidden">
+            <div id="difficultyBar" class="h-full bg-yellow-500 w-0 transition-all"></div>
+        </div>
+        <div id="stats" class="text-xl font-bold mt-2">하트: <span id="hearts" class="text-red-500">❤️❤️❤️</span> | 시간: <span id="timer" class="text-yellow-400">0.0</span>s</div>
+    </div>
+
+    <canvas id="gameCanvas" width="400" height="600"></canvas>
+    
+    <div id="modal" class="fixed inset-0 bg-black/90 flex items-center justify-center p-6 z-50">
+        <div class="bg-slate-900 p-8 rounded-3xl border-2 border-rose-500 max-w-md w-full text-center shadow-[0_0_20px_rgba(244,63,94,0.5)]">
+            <h2 id="question" class="text-2xl font-bold mb-6 text-white">결합 판별 문제!</h2>
+            <div id="choices" class="grid grid-cols-1 gap-3"></div>
+        </div>
+    </div>
+
+    <div id="ending" class="fixed inset-0 bg-rose-950 flex flex-col items-center justify-center p-6 z-50">
+        <h1 class="text-6xl font-black text-white mb-4">GAME OVER</h1>
+        <p id="finalTime" class="text-2xl text-rose-200 mb-8"></p>
+        <button onclick="location.reload()" class="bg-white text-rose-900 px-8 py-4 rounded-full font-bold text-xl hover:scale-105 transition">다시 도전</button>
+    </div>
+
+    <div id="winning" class="fixed inset-0 bg-emerald-950 flex flex-col items-center justify-center p-6 z-50">
+        <h1 class="text-6xl font-black text-white mb-4">VICTORY!</h1>
+        <p class="text-2xl text-emerald-200 mb-8">지옥의 화학 결합을 이겨냈습니다!</p>
+        <button onclick="location.reload()" class="bg-white text-emerald-900 px-8 py-4 rounded-full font-bold text-xl hover:scale-105 transition">처음으로</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const startScreen = document.getElementById('startScreen');
+        let audioCtx, lastMeteorTime = 0;
+
+        function playBGM() {
+            if(!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const elapsed = (Date.now() - startTime) / 1000;
+            if (elapsed > 60 || isPaused) return;
+            
+            // 더 빠르고 높은 톤의 긴박한 비트
+            const tempo = Math.max(50, 150 - elapsed * 1.5); 
+            
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(100 + (elapsed * 5), audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.06, audioCtx.currentTime);
+            gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.08);
+            
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.08);
+            setTimeout(playBGM, tempo);
+        }
+
+        const elements = [{n:"H", e:2.2}, {n:"C", e:2.5}, {n:"N", e:3.0}, {n:"O", e:3.5}, {n:"Na", e:0.9}, {n:"Cl", e:3.0}, {n:"Li", e:1.0}, {n:"F", e:4.0}];
+        let player = {x: 180, w: 50, h: 10, hearts: 3};
+        let meteors = [];
+        let startTime = null;
+        let isPaused = true;
+
+        startScreen.style.display = 'flex';
+        startScreen.onclick = () => {
+            startScreen.style.display = 'none';
+            startTime = Date.now();
+            isPaused = false;
+            playBGM();
+            draw();
+        };
+
+        function draw() {
+            if(isPaused) return;
+            let now = Date.now();
+            let elapsed = (now - startTime) / 1000;
+            
+            if (elapsed >= 60) {
+                document.getElementById('winning').style.display = 'flex';
+                isPaused = true;
+                return;
+            }
+
+            ctx.clearRect(0, 0, 400, 600);
+            
+            // 60초까지 난이도 점진적 증가
+            let interval = Math.max(150, 600 - elapsed * 7);
+            if (now - lastMeteorTime > interval) {
+                let count = 1 + Math.floor(elapsed / 8);
+                for(let i=0; i<count; i++) {
+                    meteors.push({ x: Math.random() * 370, y: -30, speed: 3.5 + elapsed * 0.25, el: elements[Math.floor(Math.random() * elements.length)] });
+                }
+                lastMeteorTime = now;
+            }
+
+            document.getElementById('timer').innerText = elapsed.toFixed(1);
+            document.getElementById('difficultyBar').style.width = (elapsed / 60 * 100) + "%";
+            
+            if(elapsed > 5) canvas.classList.add('shake');
+
+            ctx.fillStyle = "#f43f5e";
+            ctx.fillRect(player.x, 560, player.w, player.h);
+            
+            meteors.forEach((m, index) => {
+                let intensity = Math.min(255, elapsed * 4);
+                ctx.fillStyle = `rgb(255, ${255 - intensity}, ${255 - intensity})`;
+                ctx.fillRect(m.x, m.y, 30, 30);
+                ctx.fillStyle = "black";
+                ctx.fillText(m.el.n, m.x + 10, m.y + 20);
+                m.y += m.speed;
+                if(m.y > 550 && m.x > player.x - 20 && m.x < player.x + 50) triggerQuiz(m, index);
+                if(m.y > 600) meteors.splice(index, 1);
+            });
+            requestAnimationFrame(draw);
+        }
+
+        function triggerQuiz(m, index) {
+            isPaused = true;
+            meteors.splice(index, 1);
+            const target = elements[Math.floor(Math.random()*elements.length)];
+            const diff = Math.abs(m.el.e - target.e);
+            const ans = diff < 0.4 ? "무극성" : diff < 1.5 ? "극성" : "이온";
+            document.getElementById('question').innerText = `[${m.el.n} + ${target.n}] 결합 유형은?`;
+            document.getElementById('choices').innerHTML = ["무극성", "극성", "이온"].map(c => `<button class="bg-rose-600 hover:bg-rose-500 p-4 rounded-xl font-bold" onclick="answer('${c}', '${ans}')">${c}</button>`).join('');
+            document.getElementById('modal').style.display = 'flex';
+        }
+
+        function answer(user, correct) {
+            if(user === correct) {
+                document.getElementById('modal').style.display = 'none';
+                isPaused = false;
+                draw();
+            } else {
+                player.hearts--;
+                document.getElementById('hearts').innerText = "❤️".repeat(player.hearts);
+                if(player.hearts <= 0) {
+                    document.getElementById('modal').style.display = 'none';
+                    document.getElementById('ending').style.display = 'flex';
+                    document.getElementById('finalTime').innerText = `최종 생존 시간: ${document.getElementById('timer').innerText}초`;
+                } else {
+                    document.getElementById('modal').style.display = 'none';
+                    isPaused = false;
+                    draw();
+                }
+            }
+        }
+
+        window.addEventListener('mousemove', e => player.x = Math.max(0, Math.min(e.clientX - canvas.getBoundingClientRect().left - 25, 350)));
+    </script>
+</body>
+</html>
